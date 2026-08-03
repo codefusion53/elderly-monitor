@@ -23,6 +23,8 @@ def get_conn(retries: int = 30, delay: float = 2.0):
                 log.info("Database connected after %s attempts", attempt)
             return conn
         except psycopg2.OperationalError as e:
+            if "password authentication failed" in str(e):
+                raise  # config problem: retrying will never help, fail loud
             last_err = e
             log.info("Database not ready (attempt %s/%s), retrying...", attempt, retries)
             time.sleep(delay)
