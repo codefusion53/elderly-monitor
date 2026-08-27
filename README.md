@@ -35,9 +35,9 @@ unknown ──> online ──> offline_suspected ──> offline_confirmed
 - Only after `OFFLINE_TOLERANCE_MINUTES` (default 20) without a successful
   poll does the device become `offline_confirmed`, writing a row to
   `connectivity_events`. Recovery writes `back_online`, so every gap is
-  bounded on both ends (Milestone 2 reconciles these gaps).
+  bounded on both ends.
 - The tolerance window is configurable and will be adjustable from the
-  admin profile in Milestone 3.
+  admin profile.
 
 ## Setup
 
@@ -68,7 +68,7 @@ fails immediately and loudly instead of retrying.
   security boundary, not the host firewall.
 - **Secrets hygiene**: `.env` is git-ignored; history verified clean.
   Tuya Access Secret and DB password are scheduled for rotation at
-  final handover (Milestone 4).
+  final handover.
 - **Backups**: daily `pg_dump` via cron at 04:15 to `/opt/backups`,
   gzip-compressed, 14-day retention (`/opt/backups/backup_monitor.sh`).
   Restores were spot-checked after setup.
@@ -78,12 +78,12 @@ fails immediately and loudly instead of retrying.
 - **Apply config changes** (env vars, compose edits): always recreate,
   never restart — `restart` keeps the old environment.
   ```
-  docker compose down && docker compose up -d
+  docker-compose down && docker-compose up -d
   ```
   (`down` does NOT delete data; only `down -v` would remove the volume.)
 - **Query the database**:
   ```
-  docker compose exec db psql -U monitor -d monitor
+  docker-compose exec db psql -U monitor -d monitor
   ```
 - **Health check**:
   ```

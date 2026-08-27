@@ -1,12 +1,12 @@
 -- =====================================================================
--- Elderly Monitoring System - Milestone 1 schema
+-- Elderly Monitoring System
 -- PostgreSQL
 -- =====================================================================
 
 CREATE TABLE IF NOT EXISTS residences (
     id          SERIAL PRIMARY KEY,
     name        TEXT NOT NULL,
-    timezone    TEXT NOT NULL DEFAULT 'Europe/Lisbon',  -- critical for "morning routine" logic in Milestone 2
+    timezone    TEXT NOT NULL DEFAULT 'Europe/Lisbon',  -- critical for "morning routine" logic
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS readings (
 CREATE INDEX IF NOT EXISTS idx_readings_device_ts ON readings (device_id, ts DESC);
 
 -- Every confirmed transition online <-> offline. This table IS the
--- Milestone 1 "no data is never no activity" deliverable.
+-- "no data is never no activity" deliverable.
 CREATE TABLE IF NOT EXISTS connectivity_events (
     id          BIGSERIAL PRIMARY KEY,
     device_id   INTEGER NOT NULL REFERENCES devices(id),

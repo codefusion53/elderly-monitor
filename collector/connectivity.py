@@ -9,10 +9,10 @@ States (stored on devices.conn_state):
     offline_suspected  -> a poll failed or online=false, but still inside
                           the tolerance window; NOTHING is emitted
     offline_confirmed  -> tolerance window exceeded; a connectivity_event
-                          row is written (Milestone 3 will alert on these)
+                          row is written
 
 Transitions back to online from any offline state emit a 'back_online'
-event so the gap is bounded on both ends (Milestone 2 reconciles it).
+event so the gap is bounded on both ends.
 """
 
 from datetime import datetime, timedelta, timezone
