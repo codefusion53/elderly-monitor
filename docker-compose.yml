@@ -3,7 +3,7 @@ services:
     image: postgres:16
     environment:
       POSTGRES_USER: monitor
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      POSTGRES_PASSWORD: e769c3f89b610970eb9fb1af
       POSTGRES_DB: monitor
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -15,7 +15,7 @@ services:
     build: .
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://monitor:${DB_PASSWORD:?set DB_PASSWORD in .env}@db:5432/monitor
+      DATABASE_URL: postgresql://monitor:e769c3f89b610970eb9fb1af@db:5432/monitor
     depends_on:
       - db
     restart: unless-stopped
