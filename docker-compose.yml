@@ -15,7 +15,7 @@ services:
     build: .
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://monitor:${DB_PASSWORD:?set DB_PASSWORD in .env}@db:5432/monitor
+      DATABASE_URL: postgresql://monitor:${DB_PASSWORD}@db:5432/monitor
     depends_on:
       - db
     restart: unless-stopped
