@@ -11,6 +11,7 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     restart: unless-stopped
+
   collector:
     build: .
     env_file: .env
@@ -18,6 +19,31 @@ services:
       DATABASE_URL: postgresql://monitor:${DB_PASSWORD:?set DB_PASSWORD in .env}@db:5432/monitor
     depends_on:
       - db
+    command: ["python", "-m", "collector.main"]
     restart: unless-stopped
+
+  web:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://monitor:${DB_PASSWORD:?set DB_PASSWORD in .env}@db:5432/monitor
+    depends_on:
+      - db
+    # bind to localhost on the host; put a reverse proxy (HTTPS) in front for real use
+    ports:
+      - "127.0.0.1:8000:8000"
+    command: ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
+
+  alerting:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://monitor:${DB_PASSWORD:?set DB_PASSWORD in .env}@db:5432/monitor
+    depends_on:
+      - db
+    command: ["python", "-m", "api.alerting", "--loop", "300"]
+    restart: unless-stopped
+
 volumes:
   pgdata:

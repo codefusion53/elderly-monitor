@@ -21,6 +21,9 @@ interface/   Read-only reporting/visualization: charts, shared DB access.
 api/         FastAPI web layer: live state API, dashboard, login, two
              profiles (Family/Caregiver + Admin), sensitivity settings,
              and the alerting engine (email + WhatsApp).
+
+The whole system runs as one docker-compose stack of four services
+(db, collector, web, alerting), all set to restart automatically.
 ```
 
 ```
@@ -100,11 +103,13 @@ python -m interface.make_charts --routine --out reports/   # choose output dir
 
 ## api/  (Phase 3 web layer)
 
-FastAPI app serving the live system and the family/admin experience.
+FastAPI app serving the live system and the family/admin experience. It runs
+as the `web` service in docker-compose (see Setup); the commands below are for
+running it directly during development.
 
-Run:
+Run (development):
 ```
-pip install fastapi uvicorn bcrypt
+pip install -r requirements.txt
 uvicorn api.app:app --host 127.0.0.1 --port 8000
 ```
 
@@ -140,8 +145,9 @@ Channels (api/notify.py): email via SMTP (works immediately, free) and
 WhatsApp via the Business API (Twilio-style; needs the client's Business
 account). Both fail safely if unconfigured.
 
-Run one cycle: `python -m api.alerting`
-Run as a loop: `python -m api.alerting --loop 300` (or schedule with cron).
+It runs as the `alerting` service in docker-compose (a loop every 300s). To run
+it manually during development: `python -m api.alerting` (one cycle) or
+`python -m api.alerting --loop 300` (loop).
 
 ## check/
 
@@ -150,23 +156,41 @@ status) and `tuya_region_sweep.py` (locate/rule out mislocated credentials).
 
 ## Setup
 
+The whole system runs as one docker-compose stack with four services: `db`,
+`collector`, `web`, and `alerting`. All four have `restart: unless-stopped`, so
+once the Docker daemon is enabled on boot the entire system comes back
+automatically after a reboot.
+
 1. `cp .env.example .env` and fill in real values, including `DB_PASSWORD`
    (used by docker-compose). `.env` is git-ignored and must never be committed.
-2. `docker-compose up -d --build`.
-3. Apply the Phase 3 schema:
+2. Enable Docker on boot (so the stack auto-starts after a reboot):
+   ```
+   sudo systemctl enable docker
+   ```
+3. Build and start the whole stack:
+   ```
+   docker-compose up -d --build
+   ```
+4. Apply the schemas and migrations (once):
    ```
    docker-compose exec -T db psql -U monitor -d monitor < api/schema_phase3.sql
    docker-compose exec -T db psql -U monitor -d monitor < api/schema_alerts.sql
+   docker-compose exec -T db psql -U monitor -d monitor -c "ALTER TABLE residence_settings ADD COLUMN IF NOT EXISTS extended_offline_min INTEGER NOT NULL DEFAULT 180, ADD COLUMN IF NOT EXISTS total_offline_critical_min INTEGER NOT NULL DEFAULT 40;"
    ```
-4. Create an admin user:
+5. Create an admin user:
    ```
-   python -c "from api.auth import create_user; create_user('admin','PICK_A_PASSWORD',role='admin')"
+   docker-compose exec web python -c "from api.auth import create_user; create_user('admin','PICK_A_PASSWORD',role='admin')"
    ```
-5. Run the web app (see api/ above). The collector runs in Docker; the web app
-   and alerting loop can run alongside it.
+6. Check everything is running: `docker-compose ps` (all four `Up`), and
+   `curl -s localhost:8000/api/health` returns `{"ok":true}`.
 
-The collector retries the DB connection on startup (up to 30 attempts). A
-wrong DB password fails immediately and loudly instead of retrying.
+The web dashboard is at `http://127.0.0.1:8000` (bound to localhost; put an
+HTTPS reverse proxy in front for external use). The collector retries the DB
+connection on startup (up to 30 attempts); a wrong DB password fails
+immediately and loudly instead of retrying.
+
+To confirm auto-start works, reboot the VM and check `docker-compose ps` shows
+all four services back up without any manual action.
 
 ### .env keys
 
@@ -199,8 +223,13 @@ to the client, rotate the DB password or start the repo history fresh.
 - Apply config changes (env, compose): recreate, never restart.
   `docker-compose down && docker-compose up -d`. `down` does not delete data;
   only `down -v` removes the volume.
-- Both `db` and `collector` have `restart: unless-stopped`; the Docker daemon
-  must be enabled (`systemctl enable docker`) so they return after a reboot.
+- All four services (`db`, `collector`, `web`, `alerting`) have
+  `restart: unless-stopped`, so they survive crashes and reboots. For this to
+  work after a VM reboot the Docker daemon must be enabled on boot
+  (`sudo systemctl enable docker`; check with `systemctl is-enabled docker`).
+- After changing code, rebuild the image so `web`, `collector`, and `alerting`
+  pick it up: `docker-compose up -d --build`.
+- Logs: `docker-compose logs -f collector` (or `web`, `alerting`, `db`).
 - Health check: `SELECT count(*), min(ts), max(ts) FROM readings;` (expect
   ~120 rows/hour for two devices, `max(ts)` within ~2 minutes).
 - Backup: a daily `pg_dump | gzip` off-box, with periodic restore checks.
