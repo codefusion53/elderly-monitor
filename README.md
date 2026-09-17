@@ -73,9 +73,30 @@ endpoint, fetched every poll.
 
 ## interface/
 
-Read-only tooling. `data_access.py` is the shared DB layer. Chart generators
-render the routine chart (learned routine + day-by-day state strip) and the
-consumption curve.
+Read-only tooling on top of the collected data. Nothing here writes to the
+database. `data_access.py` is the shared DB layer used by the charts and the
+api.
+
+`make_charts.py` is the chart CLI. Run it from the project root, next to
+`.env`:
+
+```
+python -m interface.make_charts --all              # routine + consumption
+python -m interface.make_charts --routine          # learned routine only
+python -m interface.make_charts --consumption --hours 48   # power curve
+python -m interface.make_charts --routine --out reports/   # choose output dir
+```
+
+- `--routine` renders, per device with a usable signal, the learned routine
+  (per-hour activity probability with peak hours highlighted and quiet hours
+  shaded) plus a day-by-day state strip (GREEN / YELLOW / RED / SEM DADOS).
+  Low-signal devices (e.g. an LED lamp) are skipped for the routine chart.
+  Output: `routine.png`.
+- `--consumption` renders the last N hours (default 48, set with `--hours`) of
+  power draw per device. Output: `consumption.png`.
+- `--all` (the default if no flag is given) renders both.
+- `--out DIR` sets the output directory (default: current directory).
+- Time zone follows `CHART_TZ` (default Europe/Lisbon).
 
 ## api/  (Phase 3 web layer)
 
