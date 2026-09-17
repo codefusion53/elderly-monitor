@@ -1,5 +1,5 @@
 """
-Live state service (with system-health / data-freshness).
+Phase 3 - Live state service (with system-health / data-freshness).
 
 Computes green/yellow/red per device from the inference engine, PLUS a
 system-health check on data freshness. If the newest reading is stale, the
@@ -15,6 +15,24 @@ from datetime import datetime
 from inference.baseline import learn_baseline, detect_activity_events
 from inference.deviation import evaluate_state
 from interface.data_access import connect, device_names, load_readings, live_state_rows
+
+try:
+    from api.auth import get_settings as _get_settings
+except Exception:  # auth optional; fall back to defaults if unavailable
+    _get_settings = None
+
+
+def _residence_settings():
+    """Load settings for the (single) residence. Extendable to multi-residence
+    by keying on residence_id; the current DB has one residence."""
+    if _get_settings is None:
+        return {"yellow_fraction": 0.75, "stale_after_min": STALE_AFTER_MINUTES,
+                "ceiling_override_min": None}
+    try:
+        return _get_settings(1)
+    except Exception:
+        return {"yellow_fraction": 0.75, "stale_after_min": STALE_AFTER_MINUTES,
+                "ceiling_override_min": None}
 
 STALE_AFTER_MINUTES = 10
 
@@ -47,7 +65,8 @@ class DeviceState:
     events_today: int = 0
 
 
-def compute_device_state(conn, device):
+def compute_device_state(conn, device, settings=None):
+    settings = settings or {}
     readings = load_readings(conn, device)
     conn_state = None
     for row in live_state_rows(conn):
@@ -65,7 +84,11 @@ def compute_device_state(conn, device):
     now = readings[-1].ts
     system_online = readings[-1].online and conn_state != "offline_confirmed"
 
-    res = evaluate_state(baseline, last_activity, now, system_online)
+    res = evaluate_state(
+        baseline, last_activity, now, system_online,
+        yellow_fraction=settings.get("yellow_fraction"),
+        ceiling_override_min=settings.get("ceiling_override_min"),
+    )
 
     peaks = ([h for h, _ in sorted(baseline.hourly_activity_prob.items(),
              key=lambda kv: kv[1], reverse=True)[:2]]
@@ -87,9 +110,12 @@ def compute_device_state(conn, device):
 def compute_all_states():
     conn = connect()
     try:
+        settings = _residence_settings()
+        stale_after = settings.get("stale_after_min") or STALE_AFTER_MINUTES
+
         devices, latest_ts = [], None
         for name in device_names(conn):
-            ds, last_ts = compute_device_state(conn, name)
+            ds, last_ts = compute_device_state(conn, name, settings)
             devices.append(asdict(ds))
             if last_ts and (latest_ts is None or last_ts > latest_ts):
                 latest_ts = last_ts
@@ -99,7 +125,7 @@ def compute_all_states():
             now_local = datetime.now()
             base = latest_ts.replace(tzinfo=None) if latest_ts.tzinfo else latest_ts
             stale_minutes = max(0, (now_local - base).total_seconds() / 60)
-            system_ok = stale_minutes <= STALE_AFTER_MINUTES
+            system_ok = stale_minutes <= stale_after
 
         residence = _residence_rollup(devices, system_ok, stale_minutes)
         return {"devices": devices, "residence": residence,

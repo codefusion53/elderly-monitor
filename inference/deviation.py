@@ -49,10 +49,17 @@ def evaluate_state(
     last_activity_ts: datetime | None,
     now: datetime,
     system_online: bool,
+    yellow_fraction: float | None = None,
+    ceiling_override_min: float | None = None,
 ) -> StateResult:
-    """Decide the current semáforo state for one residence/device."""
+    """Decide the current semáforo state for one residence/device.
 
-    ceiling = baseline.max_normal_gap_min or 0.0
+    yellow_fraction and ceiling_override_min, when provided, come from the
+    admin-adjustable per-residence settings and override the module defaults.
+    """
+    yf = yellow_fraction if yellow_fraction is not None else YELLOW_FRACTION
+    # a manual ceiling override (admin) takes precedence over the learned one
+    ceiling = ceiling_override_min if ceiling_override_min else (baseline.max_normal_gap_min or 0.0)
 
     # 1) System health takes precedence: no data is a SYSTEM problem.
     if not system_online:
@@ -109,7 +116,7 @@ def evaluate_state(
             minutes_since_activity=mins,
             ceiling_min=ceiling,
         )
-    if mins >= YELLOW_FRACTION * ceiling:
+    if mins >= yf * ceiling:
         return StateResult(
             state="YELLOW",
             reason=f"Sem atividade há {mins:.0f} min, a aproximar-se do "

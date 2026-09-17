@@ -13,7 +13,7 @@ TUYA_ACCESS_SECRET = os.environ["TUYA_ACCESS_SECRET"]
 
 # --- Database ---
 DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql://monitor:monitor@localhost:5432/monitor"
+    "DATABASE_URL"
 )
 
 # --- Collector behaviour ---
