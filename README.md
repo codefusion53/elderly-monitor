@@ -171,10 +171,11 @@ automatically after a reboot.
    ```
    docker-compose up -d --build
    ```
-4. Apply the schemas and migrations (once):
+4. Schema. On a FRESH install the full `schema.sql` is applied automatically
+   the first time the database volume is created (nothing to run). On an
+   EXISTING database that predates the alert-threshold columns, apply the
+   idempotent migration once:
    ```
-   docker-compose exec -T db psql -U monitor -d monitor < api/schema_phase3.sql
-   docker-compose exec -T db psql -U monitor -d monitor < api/schema_alerts.sql
    docker-compose exec -T db psql -U monitor -d monitor -c "ALTER TABLE residence_settings ADD COLUMN IF NOT EXISTS extended_offline_min INTEGER NOT NULL DEFAULT 180, ADD COLUMN IF NOT EXISTS total_offline_critical_min INTEGER NOT NULL DEFAULT 40;"
    ```
 5. Create an admin user:
@@ -256,10 +257,10 @@ with a space) removes the problem.
 
 ## Roadmap
 
-- Phase 1: Tuya integration, continuous collection, offline detection. Done.
+- Phase 1: Tuya integration, continuous collection, offline detection.
 - Phase 2: inference engine (routine learning, deviation detection,
-  green/yellow/red states, offline-gap reconciliation). Done.
+  green/yellow/red states, offline-gap reconciliation).
 - Phase 3: web dashboard (Family/Caregiver + Admin profiles), sensitivity
-  controls, and notifications (email + WhatsApp). Built.
+  controls, and notifications (email + WhatsApp).
 - Phase 4: end-to-end testing, threshold tuning, deployment hardening,
   documentation and handover (including credential rotation).
