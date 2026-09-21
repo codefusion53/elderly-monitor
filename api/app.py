@@ -17,7 +17,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from api.state_service import compute_all_states
-from api.admin_pages import LOGIN_HTML, admin_html
+from api.pages import LOGIN_HTML, settings_html, charts_html, report_html
 from api import auth
 from interface.data_access import connect
 
@@ -98,7 +98,29 @@ def admin(request: Request):
     finally:
         conn.close()
     settings = {r["id"]: auth.get_settings(r["id"]) for r in residences}
-    return admin_html(residences, settings)
+    return settings_html(residences, settings)
+
+
+@app.get("/admin/charts", response_class=HTMLResponse)
+def admin_charts(request: Request):
+    user = _current_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=302)
+    if user["role"] != "admin":
+        return HTMLResponse("<h3>Acesso restrito ao administrador.</h3>", status_code=403)
+    return charts_html()
+
+
+@app.get("/admin/report", response_class=HTMLResponse)
+def admin_report(request: Request, days: int = 14):
+    user = _current_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=302)
+    if user["role"] != "admin":
+        return HTMLResponse("<h3>Acesso restrito ao administrador.</h3>", status_code=403)
+    from api.report_data import build_report
+    days = max(1, min(days, 90))   # clamp to a sane range
+    return report_html(build_report(days))
 
 
 @app.post("/api/settings/{residence_id}")
@@ -109,6 +131,26 @@ async def save_settings(residence_id: int, request: Request):
     body = await request.json()
     auth.update_settings(residence_id, **body)
     return JSONResponse({"ok": True})
+
+
+@app.get("/admin/chart/routine.png")
+def chart_routine(request: Request):
+    user = _current_user(request)
+    if not user or user["role"] != "admin":
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    from api.charts import routine_png
+    from fastapi.responses import Response
+    return Response(content=routine_png(), media_type="image/png")
+
+
+@app.get("/admin/chart/consumption.png")
+def chart_consumption(request: Request):
+    user = _current_user(request)
+    if not user or user["role"] != "admin":
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    from api.charts import consumption_png
+    from fastapi.responses import Response
+    return Response(content=consumption_png(), media_type="image/png")
 
 
 DASHBOARD_HTML = """<!doctype html>

@@ -37,6 +37,9 @@ SMTP_FROM = os.getenv("SMTP_FROM", SMTP_USER or "alertas@zelosmart.local")
 WA_API_URL = os.getenv("WHATSAPP_API_URL")      # provider endpoint
 WA_API_TOKEN = os.getenv("WHATSAPP_API_TOKEN")
 WA_FROM = os.getenv("WHATSAPP_FROM")            # sender number/id
+# Optional approved Content Template (required for business-initiated sends on
+# many Twilio accounts). When set, we send the template instead of free Body.
+WA_CONTENT_SID = os.getenv("WHATSAPP_CONTENT_SID")
 
 
 def send_email(to_addr: str, subject: str, body: str) -> tuple[bool, str]:
@@ -58,22 +61,46 @@ def send_email(to_addr: str, subject: str, body: str) -> tuple[bool, str]:
         return False, f"email error: {e}"
 
 
-def send_whatsapp(to_number: str, body: str) -> tuple[bool, str]:
+def send_whatsapp(to_number: str, body: str,
+                  content_variables: dict | None = None) -> tuple[bool, str]:
     if not (WA_API_URL and WA_API_TOKEN and WA_FROM):
         return False, "WhatsApp not configured"
     try:
-        # Twilio-style form post; adjust to the chosen provider's contract.
+        # Twilio Messages API: HTTP basic auth (AccountSID:AuthToken), form post
+        # with the whatsapp: prefix on both From and To.
+        auth = None
+        headers = None
+        if ":" in WA_API_TOKEN:
+            sid, token = WA_API_TOKEN.split(":", 1)
+            auth = (sid, token)
+        else:
+            headers = {"Authorization": f"Bearer {WA_API_TOKEN}"}
+        data = {"From": f"whatsapp:{WA_FROM}", "To": f"whatsapp:{to_number}"}
+        if WA_CONTENT_SID:
+            # business-initiated send via an approved Content Template
+            data["ContentSid"] = WA_CONTENT_SID
+            if content_variables:
+                import json as _json
+                data["ContentVariables"] = _json.dumps(content_variables)
+        else:
+            # free-form text: only valid inside the 24h user-initiated window
+            data["Body"] = body
         r = requests.post(
             WA_API_URL,
-            auth=(WA_API_TOKEN.split(":")[0], WA_API_TOKEN.split(":")[-1])
-                 if ":" in WA_API_TOKEN else None,
-            data={"From": f"whatsapp:{WA_FROM}",
-                  "To": f"whatsapp:{to_number}", "Body": body},
-            headers=None if ":" in WA_API_TOKEN
-                    else {"Authorization": f"Bearer {WA_API_TOKEN}"},
+            auth=auth,
+            headers=headers,
+            data=data,
             timeout=15,
         )
-        ok = 200 <= r.status_code < 300
-        return ok, f"http {r.status_code}"
+        if 200 <= r.status_code < 300:
+            return True, f"sent (http {r.status_code})"
+        # surface Twilio's error message so failures are debuggable
+        detail = ""
+        try:
+            j = r.json()
+            detail = j.get("message") or j.get("detail") or ""
+        except Exception:
+            detail = r.text[:200]
+        return False, f"http {r.status_code}: {detail}"
     except Exception as e:
         return False, f"whatsapp error: {e}"
