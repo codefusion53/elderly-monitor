@@ -17,7 +17,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from api.state_service import compute_all_states
-from api.pages import LOGIN_HTML, settings_html, charts_html, report_html
+from api.pages import LOGIN_HTML, settings_html, charts_html, report_html, faq_html
 from api import auth
 from interface.data_access import connect
 
@@ -101,6 +101,14 @@ def admin(request: Request):
     return settings_html(residences, settings)
 
 
+@app.get("/suporte", response_class=HTMLResponse)
+def suporte(request: Request):
+    user = _current_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=302)
+    return faq_html()
+
+
 @app.get("/admin/charts", response_class=HTMLResponse)
 def admin_charts(request: Request):
     user = _current_user(request)
@@ -169,7 +177,7 @@ DASHBOARD_HTML = """<!doctype html>
  .big .label{font-size:.8rem;opacity:.9;letter-spacing:.04em;text-transform:uppercase}
  .big .state{font-size:2rem;font-weight:700;margin:6px 0}.big .reason{font-size:.95rem;opacity:.95}
  .GREEN{background:#2e9e5b}.YELLOW{background:#e6b800;color:#3a2f00}
- .RED{background:#d64545}.SYSTEM{background:#4b5563}.UNKNOWN{background:#9aa2ad}
+ .RED{background:#d64545}.SYSTEM{background:#4b5563}.CALIBRATION{background:#5b7fb4}.UNKNOWN{background:#9aa2ad}
  .card{background:#fff;border-radius:12px;padding:14px 16px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,.05)}
  .card .top{display:flex;align-items:center;gap:14px}
  .dot{width:14px;height:14px;border-radius:50%;flex:none}
@@ -191,7 +199,7 @@ DASHBOARD_HTML = """<!doctype html>
  <div class="foot">Atualiza automaticamente a cada 60 segundos.</div>
 </div>
 <script>
-const TITLE={GREEN:"Tudo normal",YELLOW:"Sem atividade recente",RED:"Alerta",SYSTEM:"Sistema sem dados",UNKNOWN:"Sem dados"};
+const TITLE={GREEN:"Tudo normal",YELLOW:"Sem atividade recente",RED:"Alerta",SYSTEM:"Sistema sem dados",CALIBRATION:"Em aprendizagem",UNKNOWN:"Sem dados"};
 function hm(h){return String(h).padStart(2,'0')+"h";}
 async function load(){
  try{

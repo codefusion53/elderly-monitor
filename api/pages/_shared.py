@@ -44,5 +44,6 @@ def nav(active):
             f'<a href="/admin"{cls("settings")}>Definicoes</a>'
             f'<a href="/admin/charts"{cls("charts")}>Graficos</a>'
             f'<a href="/admin/report"{cls("report")}>Relatorio</a>'
+            f'<a href="/suporte"{cls("faq")}>Suporte</a>'
             f'<a href="/api/logout" class="right">Sair</a>'
             f'</div>')

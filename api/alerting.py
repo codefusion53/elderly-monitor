@@ -136,6 +136,9 @@ def _classify(data, thresholds=None):
                 "geral mantem-se; e apenas uma questao tecnica a resolver.")
 
     # --- activity situations ---
+    if state == "CALIBRATION":
+        # still learning the routine; never alarm during calibration
+        return ("CALIBRATION", None, "", "")
     if state == "RED":
         return ("ACT_RED", "critical",
                 "Alerta Zelo Smart: possivel inatividade",

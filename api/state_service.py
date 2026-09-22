@@ -36,6 +36,12 @@ def _residence_settings():
 
 STALE_AFTER_MINUTES = 10
 
+# During the first days after a new kit is installed, the learned baseline is
+# not yet trustworthy. Until an activity-signal device has been observed for at
+# least this many days, the residence reports "CALIBRATION" (Em Aprendizagem)
+# instead of a green/yellow/red activity verdict.
+CALIBRATION_DAYS = 14
+
 
 def _human_ago(minutes):
     if minutes is None:
@@ -63,6 +69,7 @@ class DeviceState:
     last_reading: str | None
     peak_hours: list = field(default_factory=list)
     events_today: int = 0
+    days_observed: float = 0.0
 
 
 def compute_device_state(conn, device, settings=None):
@@ -103,8 +110,22 @@ def compute_device_state(conn, device, settings=None):
         ceiling_min=res.ceiling_min, conn_state=conn_state,
         last_reading=now.strftime("%Y-%m-%d %H:%M"),
         peak_hours=sorted(peaks), events_today=events_today,
+        days_observed=round(baseline.days_observed, 1),
     )
     return ds, now
+
+
+def _minutes_since_last_reading(conn):
+    """Minutes since the most recent reading, computed entirely in the database
+    in absolute time (UTC). This is timezone- and DST-independent: it never
+    mixes the server's local clock with the Lisbon wall-clock. Returns None if
+    there are no readings.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT EXTRACT(EPOCH FROM (now() - max(ts))) / 60 FROM readings")
+        row = cur.fetchone()
+        return float(row[0]) if row and row[0] is not None else None
 
 
 def compute_all_states():
@@ -121,10 +142,11 @@ def compute_all_states():
                 latest_ts = last_ts
 
         stale_minutes, system_ok = None, True
-        if latest_ts is not None:
-            now_local = datetime.now()
-            base = latest_ts.replace(tzinfo=None) if latest_ts.tzinfo else latest_ts
-            stale_minutes = max(0, (now_local - base).total_seconds() / 60)
+        # staleness is computed in absolute UTC by the database (DST-safe),
+        # not by mixing the server clock with local wall-clock timestamps.
+        sm = _minutes_since_last_reading(conn)
+        if sm is not None:
+            stale_minutes = max(0, sm)
             system_ok = stale_minutes <= stale_after
 
         residence = _residence_rollup(devices, system_ok, stale_minutes)
@@ -140,8 +162,20 @@ def _residence_rollup(devices, system_ok, stale_minutes):
         return {"state": "SYSTEM", "category": "system",
                 "reason": f"Sistema sem dados recentes ({_human_ago(stale_minutes)}). "
                           f"Não é possível confirmar atividade em tempo real."}
-    order = {"GREEN": 0, "YELLOW": 1, "RED": 2}
+    # Calibration: while the system is still learning the routine (fewer than
+    # CALIBRATION_DAYS observed on any activity-signal device), do not present a
+    # normal activity verdict, the baseline is not yet reliable.
     activity = [d for d in devices if d["ceiling_min"]]
+    if activity:
+        max_days = max(d.get("days_observed", 0) for d in activity)
+        if max_days < CALIBRATION_DAYS:
+            remaining = max(0, CALIBRATION_DAYS - max_days)
+            return {"state": "CALIBRATION", "category": "system",
+                    "reason": f"Em aprendizagem: o sistema está a conhecer a rotina "
+                              f"da casa ({max_days:.0f} de {CALIBRATION_DAYS} dias). "
+                              f"Os alertas de inatividade ficam mais fiáveis dentro "
+                              f"de ~{remaining:.0f} dias."}
+    order = {"GREEN": 0, "YELLOW": 1, "RED": 2}
     worst, reason, category = "GREEN", "Tudo normal.", "activity"
     for d in (activity or devices):
         if order.get(d["state"], 0) > order.get(worst, 0):
