@@ -21,10 +21,13 @@ logging.basicConfig(
 log = logging.getLogger("collector")
 
 
-def poll_all(conn, tuya: TuyaClient):
+def poll_all(conn, tuya: TuyaClient, cycle: int = 0):
+    # only fetch the online flag every ONLINE_CHECK_EVERY cycles (quota saving)
+    fetch_online = (cycle % config.ONLINE_CHECK_EVERY == 0)
     for device in db.fetch_devices(conn):
         try:
-            result = tuya.poll_device(device["tuya_device_id"])
+            result = tuya.poll_device(device["tuya_device_id"],
+                                      fetch_online=fetch_online)
             if result is not None:
                 db.insert_reading(conn, device["id"], result)
                 log.info(
@@ -60,10 +63,11 @@ def main():
     tuya = TuyaClient()
     conn = db.get_conn()
 
+    cycle = 0
     while True:
         started = time.monotonic()
         try:
-            poll_all(conn, tuya)
+            poll_all(conn, tuya, cycle)
         except Exception:
             log.exception("Top-level poll cycle error; reconnecting DB")
             try:
@@ -73,6 +77,7 @@ def main():
             time.sleep(5)
             conn = db.get_conn()
 
+        cycle += 1
         elapsed = time.monotonic() - started
         time.sleep(max(1.0, config.POLL_INTERVAL_SECONDS - elapsed))
 

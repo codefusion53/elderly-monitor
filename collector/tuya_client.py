@@ -6,6 +6,14 @@ already proved working end-to-end during setup. This wrapper adds:
   - the explicit online flag (the device-list endpoint returns None for it,
     so we fetch it from the device detail endpoint)
   - a single normalized dict per device poll
+
+API-call optimisation:
+  Each poll normally makes TWO Tuya calls: getstatus (power) plus a device
+  detail call (the authoritative online flag). To stay within Tuya's free
+  monthly quota, the online flag is fetched only every N cycles
+  (ONLINE_CHECK_EVERY); in between, the last known online value is reused.
+  The power reading still happens every cycle, so activity detection is
+  unaffected. This roughly halves the API calls.
 """
 
 import logging
@@ -24,16 +32,20 @@ class TuyaClient:
             apiKey=config.TUYA_ACCESS_ID,
             apiSecret=config.TUYA_ACCESS_SECRET,
         )
+        # remember the last known online flag per device between cycles
+        self._last_online: dict[str, bool | None] = {}
 
-    def poll_device(self, tuya_device_id: str) -> dict | None:
+    def poll_device(self, tuya_device_id: str, fetch_online: bool = True) -> dict | None:
         """Return normalized telemetry for one device, or None on failure.
+
+        fetch_online=False skips the extra device-detail call and reuses the
+        last known online value (used on most cycles to save API quota).
 
         Normalized keys: cur_power_w, cur_current_ma, cur_voltage_v,
         add_ele_raw, switch_on, online.
         """
         try:
             status = self._cloud.getstatus(tuya_device_id)
-            detail = self._cloud.cloudrequest(f"/v1.0/devices/{tuya_device_id}")
         except Exception as e:  # network hiccup, token error, etc.
             log.warning("Poll failed for %s: %s", tuya_device_id, e)
             return None
@@ -44,9 +56,19 @@ class TuyaClient:
 
         points = {p["code"]: p["value"] for p in status.get("result", [])}
 
-        online = None
-        if isinstance(detail, dict) and detail.get("success"):
-            online = detail.get("result", {}).get("online")
+        # online flag: fetch fresh only when asked; otherwise reuse last known
+        if fetch_online:
+            online = None
+            try:
+                detail = self._cloud.cloudrequest(f"/v1.0/devices/{tuya_device_id}")
+                if isinstance(detail, dict) and detail.get("success"):
+                    online = detail.get("result", {}).get("online")
+            except Exception as e:
+                log.warning("Online check failed for %s: %s", tuya_device_id, e)
+                online = self._last_online.get(tuya_device_id)
+            self._last_online[tuya_device_id] = online
+        else:
+            online = self._last_online.get(tuya_device_id)
 
         return {
             "cur_power_w": _scale(points.get("cur_power"), 0.1),
