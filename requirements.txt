@@ -13,3 +13,8 @@ fastapi>=0.110
 uvicorn>=0.27
 bcrypt>=4.1
 requests>=2.31
+
+# --- Phase 4: Tuya events migration (Pulsar) ---
+tuya-connector-python>=0.1.2   # official SDK: OpenAPI + Pulsar message queue
+pycryptodome>=3.19
+pulsar-client=3.5.0

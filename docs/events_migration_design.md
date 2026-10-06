@@ -1,80 +1,153 @@
-# Tuya Events Migration - Design (Phase 4)
+# Migracao para Eventos (Tuya) - Fase 4
 
-## Why
-Polling consumes ~170k Tuya API calls/month (2 devices x ~2 calls/min),
-far above the free 25k/month quota. Even the polling optimisation (~40% cut)
-stays well over. The structural fix is to stop polling and instead subscribe
-to Tuya's Message Service (Pulsar), which pushes an event only when a device
-changes state. For 2 low-activity plugs this is a tiny message volume.
+Este documento explica a migracao da recolha de dados "por pergunta" (polling)
+para "por eventos", em duas camadas: primeiro em linguagem simples, para
+qualquer pessoa perceber; depois o detalhe tecnico, para quem vai manter o
+codigo.
 
-## How Tuya Message Service works
-- Tuya pushes device events over a Pulsar message queue.
-- Subscribe with the existing Access ID / Access Secret.
-- EU region Pulsar endpoint: pulsar+ssl://mqe.tuyaeu.com:7285/
-  (mirrors our TUYA_REGION=eu; other regions: tuyaus, tuyacn ...).
-- Event types we care about:
-    dp_report  -> a device reported data (power / switch changes) => a reading
-    online     -> device came online                              => connectivity
-    offline    -> device went offline                             => connectivity
-- Message payloads are encrypted with the Access Secret (AES); the SDK / a
-  small decrypt step recovers the JSON.
-- Billed per forwarded message. Must be enabled + authorised on the project.
+================================================================
+PARTE 1 - EXPLICACAO SIMPLES (para qualquer pessoa)
+================================================================
 
-## Architecture change
-Before:  a timer loop calls the Tuya API every 60s (pull).
-After:   a long-lived consumer holds a Pulsar connection and reacts to
-         pushed events (listen).
+## O problema, numa frase
 
-The rest of the system does NOT change:
-- readings, devices, connectivity_events tables: unchanged.
-- inference (baseline, deviation), api, alerting: unchanged, they read the
-  same tables. This is the big win: only the collection layer changes.
+O sistema estava a "perguntar" as tomadas o seu estado a cada minuto, todos os
+minutos. Isso faz demasiadas perguntas por mes e esgota a quota gratuita da
+Tuya, deixando o sistema sem dados ate ao mes seguinte.
 
-New component: collector/events.py (a Pulsar consumer) that, on each event,
-writes to the same DB via the existing db.py helpers, so downstream is
-identical to what the poller produced.
+## Uma analogia
 
-### Mapping events to the existing schema
-- dp_report: parse the status data points (cur_power, cur_voltage, add_ele,
-  switch_1), convert units exactly as tuya_client does today, insert a row in
-  readings. Mark online=True (a reporting device is online).
+Imagine que quer saber quando alguem chega a casa.
+
+- Metodo antigo (polling): telefonar para casa a cada minuto a perguntar
+  "ja chegaste?". Mesmo quando nao chegou ninguem, gasta uma chamada. Ao fim
+  do mes sao milhares de chamadas, a maioria com a resposta "ainda nao".
+
+- Metodo novo (eventos): pedir que a casa LHE telefone so quando alguem chegar.
+  Nao gasta nada enquanto nao acontece nada; recebe um aviso apenas quando ha
+  mesmo uma novidade.
+
+A migracao para eventos e exatamente isto: em vez de o nosso sistema perguntar
+constantemente, a Tuya passa a avisar-nos so quando algo muda numa tomada (ligou,
+desligou, mudou o consumo, ficou offline). Muito menos "chamadas", logo cabe
+dentro da quota gratuita.
+
+## Porque isto resolve o problema da quota
+
+Uma cafeteira muda de estado poucas vezes por dia (liga quando se faz cafe,
+desliga a seguir). Com eventos, recebemos uma mao-cheia de mensagens por dia em
+vez de 1440 perguntas. O consumo cai drasticamente e deixa de esgotar a quota.
+
+## O que muda e o que NAO muda
+
+- MUDA: apenas a forma como os dados ENTRAM no sistema (eventos em vez de
+  perguntas).
+- NAO MUDA: tudo o resto. O painel, os alertas, a aprendizagem da rotina, o
+  relatorio e as definicoes continuam exatamente iguais, porque continuam a ler
+  os mesmos dados na mesma base de dados. So trocamos a "porta de entrada" dos
+  dados; a casa por dentro fica igual.
+
+## Um detalhe importante de seguranca do sistema
+
+Com o metodo antigo, "nao receber dados ha 10 minutos" significava que algo
+estava mal (sistema cego). Com eventos, o silencio e NORMAL: se a pessoa nao
+usou nenhum aparelho, nao ha eventos, e isso nao e uma avaria. Por isso a forma
+de detetar "o sistema esta mesmo offline" tem de ser repensada (ver Parte 2),
+para nao confundir "esta tudo calmo" com "o sistema avariou".
+
+================================================================
+PARTE 2 - DETALHE TECNICO (para quem mantem o codigo)
+================================================================
+
+## Porque
+Polling consome ~170k chamadas API/mes (2 dispositivos x ~2 chamadas/min).
+A quota gratuita do IoT Core e 25k/mes, logo esgota a meio do mes. Mesmo a
+otimizacao de polling (ja feita, ~40% menos) continua muito acima. A solucao
+estrutural e subscrever o Message Service da Tuya (Pulsar): a Tuya envia um
+evento so quando um dispositivo muda de estado.
+
+## Como funciona o Message Service da Tuya
+- A Tuya envia eventos por uma fila de mensagens Pulsar.
+- Subscreve-se com o Access ID / Access Secret ja existentes.
+- Endpoint EU: pulsar+ssl://mqe.tuyaeu.com:7285/ (espelha TUYA_REGION=eu;
+  outras regioes: tuyaus, tuyacn).
+- Tipos de evento relevantes:
+    dp_report -> o dispositivo reportou dados (potencia / switch) => uma leitura
+    online    -> dispositivo ficou online                         => conectividade
+    offline   -> dispositivo ficou offline                        => conectividade
+- O corpo da mensagem traz um campo "data" encriptado. A chave de desencriptacao
+  sao os caracteres 8..24 (16 chars) do Access Secret. Depois de desencriptar,
+  o JSON tem devId, productKey e status (os data points).
+- Nota de encriptacao: o formato classico do IoT Core usa AES-ECB; versoes mais
+  recentes podem usar AES-GCM (a consola deste projeto indica AES-GCM). O codigo
+  tenta ECB e deve ter um fallback para GCM; confirmar com um evento real.
+- Faturado por numero de mensagens reenviadas. Precisa de estar ativo e
+  autorizado no projeto (ja esta).
+
+## Mudanca de arquitetura
+Antes:  um ciclo temporizado chama a API da Tuya a cada 60s (pull).
+Depois: um consumidor de longa duracao mantem uma ligacao Pulsar e reage aos
+        eventos recebidos (listen).
+
+O resto do sistema NAO muda:
+- tabelas readings, devices, connectivity_events: iguais.
+- inferencia (baseline, deviation), api, alerting: iguais, leem as mesmas
+  tabelas. Esta e a grande vantagem: so muda a camada de recolha.
+
+Componente novo: collector/events.py (consumidor Pulsar) que, a cada evento,
+escreve na mesma base de dados pelas mesmas funcoes de db.py, para que tudo a
+jusante seja identico ao que o polling produzia.
+
+### Mapeamento eventos -> esquema existente
+- dp_report: ler os data points (cur_power, cur_voltage, add_ele, switch_1),
+  converter unidades exatamente como o tuya_client faz hoje, inserir uma linha
+  em readings. Marcar online=True (um dispositivo que reporta esta online).
 - online:  connectivity.on_poll_result(poll_ok=True, reported_online=True)
 - offline: connectivity.on_poll_result(poll_ok=False, reported_online=False)
-  (feeds the SAME state machine, so offline_confirmed / back_online logic and
-  the tolerance window keep working unchanged.)
+  (alimenta a MESMA maquina de estados, portanto offline_confirmed / back_online
+  e a janela de tolerancia continuam a funcionar sem alteracoes.)
 
-### Reliability requirements (the real engineering)
-1. Reconnect automatically if the Pulsar connection drops, without losing
-   messages (Pulsar retains unacked messages; ack only after a successful DB
-   write).
-2. A heartbeat / "last event or keepalive" so the system-health / stale-data
-   detection still works. Note: with events, "no data" is normal when the
-   person is inactive, so staleness must be judged differently, e.g. a
-   periodic lightweight liveness check or Tuya's online/offline events rather
-   than "no reading in N minutes". THIS IS A KEY DESIGN POINT (see below).
-3. Run as its own service in docker-compose (replacing, or alongside during
-   transition, the collector service).
+### Requisitos de fiabilidade (a engenharia real)
+1. Reconexao automatica se a ligacao Pulsar cair, sem perder mensagens (o Pulsar
+   retem mensagens nao confirmadas; so confirmar (ack) apos escrita com sucesso
+   na base de dados).
+2. Repensar a detecao de "sistema sem dados". Com eventos, silencio e normal,
+   por isso NAO se pode tratar "sem evento ha N minutos" como "sistema em baixo".
+   Em vez disso:
+   - usar os eventos online/offline da Tuya para a conectividade, e
+   - manter uma verificacao de vida de baixa frequencia (ex.: uma chamada cloud
+     a cada 30-60 min) OU usar a saude da ligacao Pulsar como sinal de "sistema
+     a funcionar".
+   ESTE E UM PONTO DE DESENHO CHAVE: a migracao e mais do que trocar o transporte,
+   a logica de frescura/saude tem de ser pensada para um mundo de eventos.
+3. Correr como o seu proprio servico no docker-compose (substituindo, ou a
+   funcionar em paralelo durante a transicao, o servico collector).
 
-### Important nuance: staleness detection changes meaning
-With polling, "no reading in 10 min" = system blind = SYSTEM state. With
-events, silence is EXPECTED (events only arrive on change), so we cannot treat
-"no recent event" as "system down". Instead:
-- rely on Tuya online/offline events for connectivity, and
-- keep a low-frequency liveness ping (e.g. one cloud call every 30-60 min) OR
-  use Pulsar connection health as the "system up" signal.
-This is why the migration is more than a transport swap: the freshness/health
-logic must be rethought for an event world. Scoped accordingly.
+## Plano de transicao
+1. Provar a ligacao: collector/pulsar_test.py conecta e desencripta UM evento
+   real (ja construido; a logica de desencriptacao esta testada).
+2. Construir events.py completo; correr primeiro no canal de TESTE (MQ_ENV_TEST)
+   para validar o parsing sem tocar nos dados de producao.
+3. Correr events e polling em paralelo brevemente; comparar que os eventos
+   produzem leituras equivalentes.
+4. Cutover: trocar o servico de recolha de polling para o consumidor de eventos;
+   manter uma verificacao de vida minima para a saude do sistema.
+5. Confirmar com dados reais que o volume de chamadas fica abaixo das 25k/mes.
 
-## Transition plan
-1. Build events.py consumer; run it in the TEST channel first (MQ_ENV_TEST)
-   to validate parsing without touching production data.
-2. Run events consumer and poller in parallel briefly; compare that events
-   produce equivalent readings.
-3. Cut over: switch the docker-compose collection service from poller to
-   events consumer; keep a minimal low-frequency liveness check for health.
-4. Confirm API call volume drops under 25k/month with real data.
+## Dependencias
+- SDK tuya-pulsar (github.com/tuya/tuya-pulsar-sdk-python) + pycryptodome.
+- Message Service ativo e autorizado no projeto Tuya do cliente (ja esta).
+- Confirmacao de que o volume de mensagens fica dentro do plano gratuito
+  (confirmado: faturado por mensagem, volume muito baixo para 2 tomadas).
 
-## Dependencies
-- tuya-pulsar SDK (or the documented Pulsar client + Tuya auth/decrypt).
-- Message Service enabled and authorised on the client's Tuya project.
-- Confirmation that message volume stays within the free/cheap tier.
+## Estado atual (Fase 4)
+- Desenho: completo (este documento).
+- Desencriptacao AES (chave = Access Secret[8..24]): implementada e testada em
+  round-trip.
+- Mapeamento evento -> leitura/conectividade: implementado e testado em
+  collector/events.py (funcao handle_event).
+- Ligacao Pulsar real: collector/pulsar_test.py pronto para validar com um
+  evento real das tomadas.
+- Em falta (trabalho da Fase 4 a concluir): consumidor de producao completo com
+  reconexao, rework da logica de frescura, cutover do polling, testes ponta a
+  ponta e documentacao final de entrega.
