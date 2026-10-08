@@ -17,7 +17,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from api.state_service import compute_all_states
-from api.pages import LOGIN_HTML, settings_html, charts_html, report_html, faq_html
+from api.pages import (LOGIN_HTML, settings_html, charts_html, report_html,
+                       faq_html, privacidade_html)
 from api import auth
 from interface.data_access import connect
 
@@ -59,6 +60,13 @@ def logout(request: Request):
 @app.get("/login", response_class=HTMLResponse)
 def login_page():
     return LOGIN_HTML
+
+
+@app.get("/privacidade", response_class=HTMLResponse)
+def privacidade():
+    # Pagina publica: uma politica de privacidade tem de ser acessivel sem
+    # autenticacao (link no rodape, lojas de apps, pedidos RGPD).
+    return privacidade_html()
 
 
 @app.get("/api/state")
@@ -196,7 +204,7 @@ DASHBOARD_HTML = """<!doctype html>
  <div class="bar"><h1>Estado da casa</h1><div class="who"><!--ADMINLINK--> &middot; <!--USER--> &middot; <a href="/api/logout" style="color:#9aa2ad">Sair</a></div></div>
  <div class="sub" id="updated">A carregar...</div>
  <div id="banner"></div><div id="main"></div>
- <div class="foot">Atualiza automaticamente a cada 60 segundos.</div>
+ <div class="foot">Atualiza automaticamente a cada 60 segundos. &middot; <a href="/privacidade">Politica de Privacidade</a></div>
 </div>
 <script>
 const TITLE={GREEN:"Tudo normal",YELLOW:"Sem atividade recente",RED:"Alerta",SYSTEM:"Sistema sem dados",CALIBRATION:"Em aprendizagem",UNKNOWN:"Sem dados"};

@@ -19,6 +19,7 @@ LOGIN_HTML = """<!doctype html><html lang="pt"><head>
  <label>Palavra-passe</label><input id="p" type="password" autocomplete="current-password">
  <button onclick="go()">Entrar</button>
  <div class="err" id="e">Credenciais invalidas.</div>
+ <div style="text-align:center;margin-top:18px"><a href="/privacidade" style="color:#9aa2ad;font-size:.78rem;text-decoration:none">Politica de Privacidade</a></div>
 </div>
 <script>
 async function go(){

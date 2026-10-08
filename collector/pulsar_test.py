@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import json
 import logging
-from tuya_connector import TUYA_LOGGER
 
 from . import config
 
@@ -32,12 +31,9 @@ MQ_ENDPOINTS = {
 }
 
 
-def main():    
+def main():
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    
-    TUYA_LOGGER.setLevel(logging.DEBUG)
-
     region = config.TUYA_REGION.split("-")[0]
     mq = MQ_ENDPOINTS.get(region, MQ_ENDPOINTS["eu"])
 
