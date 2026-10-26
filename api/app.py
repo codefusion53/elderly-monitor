@@ -13,6 +13,8 @@ First-run: create an admin user from a shell:
 """
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
@@ -31,9 +33,49 @@ def _current_user(request: Request):
     return auth.user_for_token(request.cookies.get(COOKIE))
 
 
+# Data-freshness threshold. /api/health reports unhealthy (503) when the newest
+# reading is older than this many minutes, so an external uptime monitor
+# (UptimeRobot) also catches a stalled data feed, not only a fully-down server.
+HEALTH_STALE_MIN = int(os.getenv("HEALTH_STALE_MIN", "30"))
+
+
 @app.get("/api/health")
 def health():
-    return {"ok": True}
+    """Liveness + data-freshness check.
+
+    Returns 200 {"ok": true, "age_minutes": N} normally. Returns 503 when the
+    database is unreachable, there are no readings yet, or the newest reading is
+    older than HEALTH_STALE_MIN minutes. The 503 makes the external monitor
+    alert, so a silent data stall (e.g. Tuya quota exhausted) is detected even
+    though the web server itself is still up.
+    """
+    try:
+        conn = connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT EXTRACT(EPOCH FROM (now() - max(ts))) FROM readings;"
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+    except Exception:
+        return JSONResponse({"ok": False, "reason": "db_unreachable"},
+                            status_code=503)
+
+    secs = row[0] if row else None
+    if secs is None:
+        return JSONResponse({"ok": False, "reason": "no_readings"},
+                            status_code=503)
+
+    age_min = round(float(secs) / 60, 1)
+    if age_min > HEALTH_STALE_MIN:
+        return JSONResponse(
+            {"ok": False, "reason": "stale_data",
+             "age_minutes": age_min, "threshold_minutes": HEALTH_STALE_MIN},
+            status_code=503,
+        )
+    return {"ok": True, "age_minutes": age_min}
 
 
 @app.post("/api/login")
