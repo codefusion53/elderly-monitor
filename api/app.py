@@ -20,7 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from api.state_service import compute_all_states
 from api.pages import (LOGIN_HTML, settings_html, charts_html, report_html,
-                       faq_html, privacidade_html)
+                       faq_html, privacidade_html, conta_html)
 from api import auth
 from interface.data_access import connect
 
@@ -159,6 +159,31 @@ def suporte(request: Request):
     return faq_html()
 
 
+@app.get("/conta", response_class=HTMLResponse)
+def conta(request: Request):
+    user = _current_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=302)
+    return conta_html(user.get("display_name") or user["username"])
+
+
+@app.post("/api/change-password")
+async def change_password_ep(request: Request):
+    user = _current_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    body = await request.json()
+    ok = auth.change_password(
+        user["id"],
+        body.get("old_password", ""),
+        body.get("new_password", ""),
+        keep_token=request.cookies.get(COOKIE),
+    )
+    if not ok:
+        return JSONResponse({"error": "wrong_password"}, status_code=400)
+    return JSONResponse({"ok": True})
+
+
 @app.get("/admin/charts", response_class=HTMLResponse)
 def admin_charts(request: Request):
     user = _current_user(request)
@@ -243,7 +268,7 @@ DASHBOARD_HTML = """<!doctype html>
  .err{background:#fde8e8;color:#8a1f1f;padding:12px;border-radius:10px}
 </style></head><body>
 <div class="wrap">
- <div class="bar"><h1>Estado da casa</h1><div class="who"><!--ADMINLINK--> &middot; <!--USER--> &middot; <a href="/api/logout" style="color:#9aa2ad">Sair</a></div></div>
+ <div class="bar"><h1>Estado da casa</h1><div class="who"><!--ADMINLINK--> &middot; <!--USER--> &middot; <a href="/conta" style="color:#9aa2ad">A minha conta</a> &middot; <a href="/api/logout" style="color:#9aa2ad">Sair</a></div></div>
  <div class="sub" id="updated">A carregar...</div>
  <div id="banner"></div><div id="main"></div>
  <div class="foot">Atualiza automaticamente a cada 60 segundos. &middot; <a href="/privacidade">Politica de Privacidade</a></div>

@@ -5,6 +5,7 @@ from api.pages.charts import charts_html
 from api.pages.report import report_html
 from api.pages.faq import faq_html
 from api.pages.privacidade import privacidade_html
+from api.pages.conta import conta_html
 
 __all__ = ["LOGIN_HTML", "settings_html", "charts_html", "report_html",
-           "faq_html", "privacidade_html"]
+           "faq_html", "privacidade_html", "conta_html"]

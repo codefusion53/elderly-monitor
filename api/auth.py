@@ -100,6 +100,35 @@ def logout(token: str):
         conn.close()
 
 
+def change_password(user_id: int, old_password: str, new_password: str,
+                    keep_token: str | None = None) -> bool:
+    """Verify the current password and set a new one.
+
+    Returns True on success, False if the current password is wrong. On
+    success, all of the user's other sessions are revoked (keeping only
+    keep_token, the caller's current session), so a password sent over an
+    insecure channel stops granting access elsewhere.
+    """
+    if not new_password or len(new_password) < 8:
+        return False
+    conn = connect()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("SELECT password_hash FROM users WHERE id=%s", (user_id,))
+            row = cur.fetchone()
+            if not row or not verify_password(old_password, row[0]):
+                return False
+            cur.execute("UPDATE users SET password_hash=%s WHERE id=%s",
+                        (hash_password(new_password), user_id))
+            cur.execute(
+                "DELETE FROM sessions WHERE user_id=%s AND token <> %s",
+                (user_id, keep_token or ""),
+            )
+            return True
+    finally:
+        conn.close()
+
+
 def get_settings(residence_id: int) -> dict:
     conn = connect()
     try:
