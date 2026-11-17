@@ -56,6 +56,22 @@ def _human_ago(minutes):
     return f"há {d} dia{'s' if d != 1 else ''}"
 
 
+def _activity_when(last_activity, now):
+    """Label for the last activity, including the DATE when it is not 'today'
+    (today = the date of the latest reading), so a bare '07:05' can never be
+    mistaken for today's time. Uses the same timestamps already formatted
+    elsewhere, so the date and time are always in the same timezone."""
+    if last_activity is None:
+        return None
+    hm = last_activity.strftime("%H:%M")
+    day_diff = (now.date() - last_activity.date()).days
+    if day_diff <= 0:
+        return hm
+    if day_diff == 1:
+        return f"ontem {hm}"
+    return f"{last_activity.strftime('%d/%m')} {hm}"
+
+
 @dataclass
 class DeviceState:
     device: str
@@ -101,7 +117,7 @@ def compute_device_state(conn, device, settings=None):
              key=lambda kv: kv[1], reverse=True)[:2]]
              if baseline.total_active_events else [])
     events_today = sum(1 for e in events if e.date() == now.date())
-    last_activity_human = last_activity.strftime("%H:%M") if last_activity else None
+    last_activity_human = _activity_when(last_activity, now)
 
     ds = DeviceState(
         device=device, state=res.state, category=res.category, reason=res.reason,
